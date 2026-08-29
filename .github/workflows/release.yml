@@ -151,49 +151,88 @@ jobs:
           name: distributions
           path: dist/
 
-  publish:
-    name: publish to PyPI
+  # Five jobs, not five steps, and chained rather than parallel.
+  #
+  # A trusted publisher can only be scoped per *job* — GitHub Actions has no per-step environment —
+  # and a pending publisher's identity has to be unique per project while it is still pending. Five
+  # packages sharing one environment name would collide on that uniqueness the moment more than one
+  # of them was still unclaimed, which is exactly what happened registering these by hand: PyPI
+  # refused a second pending publisher with the same (repo, workflow, environment) as one already
+  # pending under a different project name, and separately caps an account at three pending
+  # publishers at once — an anti-squatting limit, not a bug on either side.
+  #
+  # So each package gets its own GitHub environment (`pypi-types`, `pypi-core`, ...) and its own
+  # job, and the five are chained with `needs` in the same leaves-first order the old single job
+  # enforced with step ordering — the SDK depends on the other four, so it publishes only once they
+  # are up, and nothing is ever live with a dependency missing from the registry.
+  #
+  # `skip-existing` stays on every one: a re-run after a partial failure — including a
+  # not-yet-registered publisher for a later package — uploads what is missing and leaves the rest
+  # alone.
+  publish-types:
+    name: publish proofstep-types
     needs: build
     runs-on: ubuntu-latest
-    # The environment is what a trusted publisher is scoped to, and it is where a required reviewer
-    # can be added later without touching this file.
+    environment: pypi-types
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: distributions, path: dist/}
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with: {packages-dir: dist/1-types, skip-existing: true}
+
+  publish-core:
+    name: publish proofstep-core
+    needs: publish-types
+    runs-on: ubuntu-latest
+    environment: pypi-core
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: distributions, path: dist/}
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with: {packages-dir: dist/2-core, skip-existing: true}
+
+  publish-trajectory:
+    name: publish proofstep-trajectory
+    needs: publish-core
+    runs-on: ubuntu-latest
+    environment: pypi-trajectory
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: distributions, path: dist/}
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with: {packages-dir: dist/3-trajectory, skip-existing: true}
+
+  publish-sdk:
+    name: publish proofstep
+    needs: publish-trajectory
+    runs-on: ubuntu-latest
+    # The one environment that predates the other four: `proofstep`'s pending publisher was
+    # consumed when 0.1.0's wheel first went up, so this is now a normal trusted publisher tied to
+    # an existing project rather than a pending one — no uniqueness constraint to collide with.
     environment: pypi
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
-        with:
-          name: distributions
-          path: dist/
-
-      # Uploaded in dependency order, one package per step, and this is not tidiness.
-      #
-      # The first attempt at 0.1.0 uploaded all ten files in a single call. `twine` takes them in
-      # the order it finds them, which put `proofstep` — the package that depends on the other four
-      # — first. It published. The next upload was refused, and the run stopped. The result was one
-      # package on PyPI whose every dependency was missing, so `pip install proofstep` failed for
-      # everyone with "proofstep-core was not found in the package registry", and the only fix was
-      # to publish the rest.
-      #
-      # Leaves first, so the registry is never in a state where something published cannot be
-      # installed. If a step fails, what is already up still resolves.
-      #
-      # `skip-existing` on every one of them, so a re-run after a partial failure uploads what is
-      # missing instead of failing on what is already there. Without it, recovering from a partial
-      # release means editing this file under pressure.
-      - name: proofstep-types
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with: {packages-dir: dist/1-types, skip-existing: true}
-      - name: proofstep-core
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with: {packages-dir: dist/2-core, skip-existing: true}
-      - name: proofstep-trajectory
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with: {packages-dir: dist/3-trajectory, skip-existing: true}
-      - name: proofstep (the SDK)
-        uses: pypa/gh-action-pypi-publish@release/v1
+        with: {name: distributions, path: dist/}
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with: {packages-dir: dist/4-sdk, skip-existing: true}
-      - name: proofstep-cli
-        uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-cli:
+    name: publish proofstep-cli
+    needs: publish-sdk
+    runs-on: ubuntu-latest
+    environment: pypi-cli
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: distributions, path: dist/}
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with: {packages-dir: dist/5-cli, skip-existing: true}
-        # No `password` on any of these: the OIDC token is minted from `id-token: write` above.
