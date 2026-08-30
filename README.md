@@ -82,7 +82,7 @@ is the state most eval suites are quietly in.
 One command to a running system with seeded data, a populated review queue, and the dashboard:
 
 ```bash
-git clone https://github.com/IlaKhan17/Proofstep && cd Proofstep
+git clone https://github.com/IlaKhan17/proofstep && cd proofstep
 make setup && make web-install
 ./scripts/demo.sh
 ```
@@ -128,7 +128,7 @@ proofstep eval evals/suites/sdr-email.yaml
 Requires [uv](https://docs.astral.sh/uv/) and Docker.
 
 ```bash
-git clone https://github.com/IlaKhan17/Proofstep && cd Proofstep
+git clone https://github.com/IlaKhan17/proofstep && cd proofstep
 make setup     # install Python 3.12 toolchain + sync workspace
 make test      # unit tests, no docker needed
 make dev       # start postgres, redis, minio

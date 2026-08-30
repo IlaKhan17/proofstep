@@ -40,10 +40,28 @@ GENERATED = {
 }
 
 
+#: `uses: ./path` — a local composite action. Caught separately from the prefixes above because it
+#: has no `packages/`-style prefix to match on, which is exactly how one got missed: the repository
+#: rename left `.github/actions/evalforge` in place while every reference pointed at
+#: `.github/actions/proofstep`. The workflow that used it happened to be PR-only in a repository
+#: with no PRs, so it never ran and never reported the broken path.
+LOCAL_ACTION_PATTERN = re.compile(r"uses:\s*\./([A-Za-z0-9_./-]+)")
+
+
+def local_action_targets(text: str) -> set[str]:
+    """A local action resolves to a directory holding action.yml or action.yaml."""
+    return set(LOCAL_ACTION_PATTERN.findall(text))
+
+
 def main() -> int:
     missing: list[tuple[str, str]] = []
     for workflow in sorted(WORKFLOWS.glob("*.yml")):
-        for match in sorted(set(PATH_PATTERN.findall(workflow.read_text()))):
+        text = workflow.read_text()
+        for target in sorted(local_action_targets(text)):
+            directory = ROOT / target
+            if not (directory / "action.yml").exists() and not (directory / "action.yaml").exists():
+                missing.append((workflow.name, f"{target}/ (no action.yml)"))
+        for match in sorted(set(PATH_PATTERN.findall(text))):
             # Trailing punctuation from shell quoting or YAML.
             candidate = match.rstrip(".,'\"")
             if candidate in GENERATED:
@@ -56,8 +74,10 @@ def main() -> int:
         for workflow, candidate in missing:
             print(f"  {workflow}: {candidate}", file=sys.stderr)
         print(
-            "\nA moved file leaves the workflow running nothing: pytest exits 4 with "
-            '"no tests ran", which looks like a failure with no cause.',
+            "\nBoth failures are quiet ones. A moved test file leaves pytest exiting 4 with "
+            '"no tests ran" — a red X with no cause. A missing action directory fails the job '
+            'with "action not found", and only when that workflow actually runs, which may be '
+            "never.",
             file=sys.stderr,
         )
         return 1

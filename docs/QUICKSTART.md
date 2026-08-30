@@ -11,7 +11,7 @@ You need [uv](https://docs.astral.sh/uv/), Docker, and (for the dashboard) Node 
 ## 1. The whole thing, in one command (3 min)
 
 ```bash
-git clone https://github.com/IlaKhan17/Proofstep && cd Proofstep
+git clone https://github.com/IlaKhan17/proofstep && cd proofstep
 make setup            # python toolchain + workspace
 make web-install      # dashboard dependencies (skip if you don't want the UI)
 ./scripts/demo.sh
@@ -202,7 +202,7 @@ jobs:
       pull-requests: write        # required for the comment; without it the run still gates
     steps:
       - uses: actions/checkout@v4
-      - uses: IlaKhan17/Proofstep/.github/actions/proofstep@main
+      - uses: IlaKhan17/proofstep/.github/actions/proofstep@v0.1.0
         with:
           suite: evals/suites/my-agent.yaml
 ```

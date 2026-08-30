@@ -1,5 +1,5 @@
 name: Proofstep
-description: Run an Proofstep suite, gate the pull request, and post the report as a comment.
+description: Run a Proofstep suite, gate the pull request, and post the report as a comment.
 author: Proofstep
 
 # A composite action rather than a Docker or JavaScript one: it is a handful of

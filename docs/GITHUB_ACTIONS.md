@@ -18,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0      # baseline resolution needs history
 
-      - uses: proofstep/proofstep/.github/actions/proofstep@v0
+      - uses: IlaKhan17/proofstep/.github/actions/proofstep@v0.1.0
         with:
           suite: evals/suites/my-suite.yaml
 ```
@@ -77,7 +77,7 @@ opposite of what happened. A run that dies before producing a report gets an exp
 Turn the gate off first:
 
 ```yaml
-      - uses: proofstep/proofstep/.github/actions/proofstep@v0
+      - uses: IlaKhan17/proofstep/.github/actions/proofstep@v0.1.0
         with:
           suite: evals/suites/my-suite.yaml
           fail-on-gate: false
@@ -189,7 +189,7 @@ and tag — and pin the tag, since an action reference is remote code execution 
 CI:
 
 ```yaml
-      - uses: proofstep/proofstep/.github/actions/proofstep@<commit-sha>
+      - uses: IlaKhan17/proofstep/.github/actions/proofstep@<commit-sha>
 ```
 
 Pinning to a SHA rather than a tag is the stricter and better choice; a tag can be
