@@ -24,12 +24,14 @@ database should not hand out organization access.
 
 from __future__ import annotations
 
+import logging
 import secrets
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 
@@ -48,12 +50,28 @@ from proofstep_api.db.models.identity import (
 from proofstep_api.errors import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError
 from proofstep_api.security import keys as key_utils
 from proofstep_api.security.permissions import Permission, permissions_for_role
+from proofstep_api.services import email as email_service
+from proofstep_api.services import email_templates
+from proofstep_api.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["accounts"])
 
 #: How long an invitation link stays valid. Long enough to survive a weekend and a spam folder,
 #: short enough that a link forwarded into a public channel a month ago is dead.
 INVITE_TTL_DAYS = 14
+
+
+def invite_url(token: str, *, settings: Settings) -> str:
+    """Where an invitation is accepted.
+
+    Built from `dashboard_url`, for the same reason `resets.reset_url` is: a link assembled from a
+    caller-supplied Host header points wherever the caller said, and this one carries a credential
+    that grants membership of an organization.
+    """
+    return f"{settings.dashboard_url.rstrip('/')}/invite?token={token}"
+
 
 ASSIGNABLE_ROLES = ("admin", "developer", "reviewer", "viewer")
 #: `owner` is deliberately not assignable through the API. Ownership transfer is a distinct action
@@ -234,8 +252,13 @@ async def list_members(org_id: uuid.UUID, session: SessionDep, user_id: UserId) 
 @router.post(
     "/orgs/{org_id}/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED
 )
-async def invite_member(
-    org_id: uuid.UUID, body: InviteIn, session: SessionDep, user_id: UserId
+async def invite_member(  # noqa: PLR0917 — FastAPI declares dependencies as arguments
+    org_id: uuid.UUID,
+    body: InviteIn,
+    background: BackgroundTasks,
+    session: SessionDep,
+    settings: SettingsDep,
+    user_id: UserId,
 ) -> InviteOut:
     await _require(session, org_id, user_id, Permission.MEMBERS_MANAGE)
     if body.role not in ASSIGNABLE_ROLES:
@@ -268,9 +291,29 @@ async def invite_member(
     session.add(invitation)
     await session.flush()
 
-    # The token comes back once. Delivery is the caller's problem for now — a self-hosted install
-    # has no mail server, and inventing one here would make email a hard dependency of running the
-    # product at all. The cloud deployment sends it; the API returns it either way.
+    # Loaded for the message, which names both. An invitation from a person is one the recipient
+    # can verify by asking them; an invitation from nobody, to a workspace it does not name, is
+    # indistinguishable from phishing.
+    organization = await session.get(Organization, org_id)
+    inviter = await session.get(User, user_id)
+
+    # Mailed when a transport is configured, and returned to the caller either way.
+    #
+    # Both, not one or the other. The dashboard shows the link so that a self-hosted install with
+    # no relay can still add a colleague — that path is not a fallback to be removed once email
+    # works, it is how an admin sends an invitation over Slack because that is where their team
+    # actually is. And the token is already in this response; not mailing it as well would make the
+    # feature depend on someone copying it.
+    background.add_task(
+        _deliver_invitation,
+        to=invitation.email,
+        token=token,
+        role=invitation.role,
+        organization=organization.name if organization else "your workspace",
+        invited_by=(inviter.name or inviter.email) if inviter else None,
+        settings=settings,
+    )
+
     return InviteOut(
         id=invitation.id,
         email=invitation.email,
@@ -278,6 +321,37 @@ async def invite_member(
         expires_at=invitation.expires_at,
         token=token,
     )
+
+
+async def _deliver_invitation(
+    *,
+    to: str,
+    token: str,
+    role: str,
+    organization: str,
+    invited_by: str | None,
+    settings: Settings,
+) -> None:
+    """Mail an invitation, if there is anything to mail it with.
+
+    Silent when no transport is configured — unlike a password reset, which logs its link because
+    the log is then the only way it reaches anyone. An invitation does not need that: the token is
+    in the API response and on the admin's screen, so writing it to the log as well would put a
+    credential somewhere it is not needed to get the job done.
+    """
+    sender = email_service.get_sender(settings)
+    if not sender.configured:
+        return
+
+    message = email_templates.invitation(
+        organization=organization,
+        role=role,
+        invite_url=invite_url(token, settings=settings),
+        invited_by=invited_by,
+        expires_days=INVITE_TTL_DAYS,
+    )
+    await email_service.send(replace(message, to=to), settings=settings)
+    logger.info("invitation to %s sent to %s", organization, to)
 
 
 @router.get("/orgs/{org_id}/invites", response_model=list[InviteOut])

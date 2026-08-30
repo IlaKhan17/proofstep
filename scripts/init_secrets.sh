@@ -34,6 +34,18 @@ generate app_db_password
 generate jwt_secret
 generate s3_secret_key
 
+# Empty, not random. This one is a credential for *someone else's* relay, so there is nothing to
+# generate — but the file has to exist, because docker compose refuses to start when a declared
+# secret's source is missing, and a stack that will not boot until you configure email would defeat
+# the point of email being optional.
+if [ -f secrets/smtp_password ]; then
+  printf '  = %-20s already exists, left alone\n' smtp_password
+else
+  : > secrets/smtp_password
+  chmod 600 secrets/smtp_password
+  printf '  + %-20s created empty (fill in only if you configure SMTP)\n' smtp_password
+fi
+
 # .env.prod, with the one secret that cannot live in a file already filled in. Postgres reads the
 # owner password from its secret file, but the migration URL needs it inline — a connection string
 # cannot reference a file — so it has to appear in both places. Copying it by hand is a step that is

@@ -48,6 +48,11 @@ spec:
             - name: S3_SECRET_KEY
               valueFrom:
                 secretKeyRef: {name: proofstep-secrets, key: s3-secret-key}
+            # Optional: the Secret does not have to carry this key when no relay is configured,
+            # which is why it is marked not-required rather than failing the pod at startup.
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: proofstep-secrets, key: smtp-password, optional: true}
           # Three probes, three different questions.
           #
           # `startupProbe` covers the slow first moments — connection pools, partition checks — so

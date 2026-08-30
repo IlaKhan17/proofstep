@@ -16,6 +16,14 @@ data:
   # Where the dashboard is reachable, used to build password-reset links. Must match the Ingress
   # host; the default only works for someone port-forwarding to their own machine.
   DASHBOARD_URL: https://app.example.com
+  # Mail. Empty host means invitations and password resets go through the operator rather than
+  # email — a supported configuration, see docs/OPERATIONS.md §7. The relay password belongs in the
+  # proofstep-secrets Secret as `smtp-password`, not here.
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USERNAME: ""
+  SMTP_STARTTLS: "true"
+  EMAIL_FROM: Proofstep <proofstep@example.com>
   # The ingress controller's pod network. Without an allow-list uvicorn trusts X-Forwarded-For from
   # anyone, and every client address in the audit log becomes whatever the caller claimed. Narrow
   # this to your controller's CIDR; the default here is the widest possible and is a placeholder.

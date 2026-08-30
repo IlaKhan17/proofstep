@@ -23,7 +23,11 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+from dataclasses import replace
 from typing import TYPE_CHECKING
+
+from proofstep_api.services import email as email_service
+from proofstep_api.services import email_templates
 
 if TYPE_CHECKING:
     from proofstep_api.settings import Settings
@@ -54,13 +58,32 @@ def reset_url(token: str, *, settings: Settings) -> str:
 async def deliver(email: str, token: str, *, settings: Settings) -> None:
     """Get the reset link to the person who asked for it.
 
-    Async because the mail transport that replaces this will be, and changing the signature later
-    would mean touching the caller — which is the endpoint whose security properties are the ones
-    worth not disturbing.
+    Through the configured mail transport when there is one, and through the application log when
+    there is not — see `services/email.py` for why the absence of a relay is a supported
+    configuration rather than a broken one.
+
+    **The link is logged only when nothing else can carry it.** With no transport, the log is the
+    delivery mechanism and an operator reading it is the intended path. With a relay configured,
+    writing the same link to the log would mean every account is one log query away from takeover,
+    for no benefit — it already reached the person it was for. So the two cases are not the same
+    message with a different destination; one of them deliberately says less.
     """
-    logger.warning(
-        "PASSWORD RESET LINK for %s (no mail transport is configured, so this log is the "
-        "delivery mechanism — see security/resets.py): %s",
-        email,
-        reset_url(token, settings=settings),
+    link = reset_url(token, settings=settings)
+    sender = email_service.get_sender(settings)
+
+    if not sender.configured:
+        logger.warning(
+            "PASSWORD RESET LINK for %s (no mail transport is configured, so this log is the "
+            "delivery mechanism — see services/email.py): %s",
+            email,
+            link,
+        )
+        return
+
+    message = email_templates.password_reset(
+        reset_url=link, expires_minutes=settings.password_reset_ttl_s // 60
     )
+    await email_service.send(replace(message, to=email), settings=settings)
+    # The address, not the link. Enough to answer "did we try to mail this person?" during a
+    # support conversation, and useless to anyone who should not have the token.
+    logger.info("password reset link sent to %s", email)

@@ -236,10 +236,16 @@ Stated plainly rather than implied by absence:
   pretending otherwise.
 - **Alert delivery.** The rules exist and the metrics are exported, but nothing has ever paged
   anyone: routing, inhibition, and on-call escalation are unconfigured and unexercised.
-- **Email delivery.** There is no mail transport. Invitation links are shown to the person who
-  created them; password reset links go to the application log, and `scripts/reset_link.py` lets an
-  operator issue one directly. Both flows work without it — see `OPERATIONS.md` §7 — but a hosted
-  deployment needs a mailer before it can be self-service.
+- **Email delivery is configurable but unverified against a real provider.** SMTP is implemented
+  and tested — including one test that speaks the protocol over a socket — but nothing in this
+  repository has yet sent a message through a hosted relay, so deliverability (SPF, DKIM, whether a
+  given provider's greeting differs) is untested. `OPERATIONS.md` §7 covers the configuration.
+  Without `SMTP_HOST` the product still works: invitation links are shown to whoever creates them,
+  reset links go to the application log, and `scripts/reset_link.py` issues one directly.
+- **No bounce or complaint handling.** A message rejected by the recipient's server is logged as a
+  send failure at most; nothing tracks bounces, retries a transient failure, or suppresses an
+  address that has complained. A deployment sending at any volume wants a provider webhook feeding
+  something, and there is nothing here to feed.
 - **A docs site.** These markdown files are the documentation.
 - **Point-in-time recovery and multi-region.** Backups are logical snapshots with a verified
   restore; everything written between two runs is lost if the primary is. WAL archiving is not

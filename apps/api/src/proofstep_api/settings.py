@@ -26,14 +26,15 @@ MIN_SECRET_LENGTH = 32
 #: readable from `/proc/<pid>/environ`, leaks into `docker inspect`, and lands in crash reports and
 #: process listings. A file has an owner and a mode.
 #:
-#: Only these five. An allow-list rather than "any setting", because reading arbitrary paths from
-#: the environment is a wider capability than this needs.
+#: An allow-list rather than "any setting", because reading arbitrary paths from the environment is
+#: a wider capability than this needs.
 FILE_BACKED = (
     "jwt_secret",
     "postgres_password",
     "s3_secret_key",
     "database_url",
     "migration_database_url",
+    "smtp_password",
 )
 
 
@@ -100,6 +101,34 @@ class Settings(BaseSettings):
     #: rather than something derived from the request, because a link built from a caller-supplied
     #: Host header points wherever the caller said — with a live token attached.
     dashboard_url: str = "http://localhost:3000"
+
+    # ------------------------------------------------------------------------ mail
+    #
+    # Unset by default, and that is a supported configuration rather than an incomplete one: with
+    # no host, `services/email.py` uses the logging sender, and a self-hosted install invites people
+    # and resets passwords through the operator. Requiring a relay would mean the product does not
+    # work until someone configures SMTP.
+    #
+    # SMTP rather than a provider SDK because every provider speaks it — see services/email.py.
+    smtp_host: str = ""
+    #: 587 is submission-with-STARTTLS, which is what hosted relays expect. 465 is implicit TLS;
+    #: set `smtp_tls` and clear `smtp_starttls` for that. 25 is unauthenticated relay-to-relay and
+    #: is almost never what a deployment wants.
+    smtp_port: int = 587
+    smtp_username: str = ""
+    #: Set `SMTP_PASSWORD_FILE` rather than this in production — see FILE_BACKED above. An
+    #: environment variable is readable from /proc, `docker inspect`, and crash reports.
+    smtp_password: str = ""
+    #: STARTTLS upgrades a plaintext connection; `smtp_tls` opens an encrypted one. They are
+    #: alternatives, not a pair — port 587 wants the first, port 465 the second.
+    smtp_starttls: bool = True
+    smtp_tls: bool = False
+    #: Short. Mail is sent in a background task, but a relay that accepts a connection and then
+    #: says nothing would otherwise hold a thread until the OS gives up, which on Linux is minutes.
+    smtp_timeout_s: float = 10.0
+    #: The From address. Its domain has to be one the relay is authorised to send for — SPF and
+    #: DKIM are checked against it, and a mismatch is the usual reason mail silently lands in spam.
+    email_from: str = "Proofstep <proofstep@localhost>"
     api_key_cache_ttl_s: int = Field(
         default=30,
         description=(
@@ -135,6 +164,7 @@ class Settings(BaseSettings):
     s3_secret_key_file: str | None = None
     database_url_file: str | None = None
     migration_database_url_file: str | None = None
+    smtp_password_file: str | None = None
 
     @field_validator("cors_origins", mode="before")
     @classmethod

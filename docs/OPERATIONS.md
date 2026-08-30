@@ -243,9 +243,35 @@ raising it is how a bill gets bigger.
 
 ## 7. Accounts: invitations and forgotten passwords
 
-Both flows work without a mail server, because a self-hosted install does not have one and making
-SMTP a prerequisite for adding a colleague would mean the product does not run until someone
-configures it. Both therefore need an operator in the loop, and it is worth knowing which parts.
+Both flows work with or without a mail server. Without one, they need an operator in the loop, and
+it is worth knowing which parts. With one, they are self-service.
+
+### Configuring email
+
+Optional, and off by default. Set `SMTP_HOST` and the two flows below start sending real messages;
+leave it unset and they behave exactly as described further down. The API reports which mode it is
+in at startup, so this is not something you discover when an invitation goes nowhere.
+
+```bash
+SMTP_HOST=smtp.resend.com     # or smtp.postmarkapp.com, email-smtp.<region>.amazonaws.com, ...
+SMTP_PORT=587                 # 587 = STARTTLS (usual); 465 = implicit TLS, also set SMTP_TLS=true
+SMTP_USERNAME=resend
+EMAIL_FROM="Proofstep <no-reply@yourdomain.com>"
+echo -n "your-relay-password" > secrets/smtp_password   # never an env var; see §2
+```
+
+SMTP rather than a provider SDK, so any relay works and choosing a vendor is not a code change —
+including a local postfix, where `SMTP_USERNAME` and the password can both be empty.
+
+**`EMAIL_FROM`'s domain must be one your relay is authorised to send for.** SPF and DKIM are checked
+against it, and a mismatch is the usual reason mail is accepted by the relay and then silently
+filed as spam by the recipient. Verify the domain with your provider before assuming delivery is
+broken for some subtler reason.
+
+**Sending never fails the request that triggered it.** A relay that is down does not refuse an
+invitation or tell someone their reset did not happen — the row is written and the link is valid,
+so the honest outcome is "it exists, the mail is late". Failures are logged with the recipient and
+subject.
 
 **Set `DASHBOARD_URL`.** Reset links are built from it. It is configuration rather than something
 read from the request, because a link built from a caller-supplied `Host` header points wherever the
@@ -253,8 +279,10 @@ caller said — with a live token attached. Wrong value, dead links.
 
 ### Invitations
 
-Self-service. An admin invites an address in **Settings → Members**, the dashboard shows the link,
-and they send it however they normally talk to that person. The link:
+An admin invites an address in **Settings → Members**. The dashboard always shows the link, and
+when a relay is configured the invitation is emailed as well — both, because "copy the link and
+send it over Slack" is how a lot of teams actually onboard, and that path should not stop working
+just because email started. The link:
 
 - works only for the address it was issued to, so forwarding it does not transfer membership;
 - expires in 14 days, and can be accepted once;
@@ -266,8 +294,13 @@ a personal workspace of their own first.
 
 ### Forgotten passwords
 
-`/forgot` on the dashboard creates a reset token. With no mail transport configured, the link leaves
-the process by one route only — a `WARNING` in the API log:
+`/forgot` on the dashboard creates a reset token. **With `SMTP_HOST` set, the link is emailed** and
+is deliberately *not* written to the log: once it has reached the person it was for, logging it too
+would put every account one log query away from takeover. The log records only that a message was
+sent, and to which address.
+
+With no mail transport configured, the link leaves the process by one route only — a `WARNING` in
+the API log:
 
 ```
 PASSWORD RESET LINK for someone@example.com (no mail transport is configured, ...): https://.../reset?token=...
@@ -290,7 +323,12 @@ session on that account out — including an attacker's, which is the case worth
 **The link is never returned in an HTTP response**, and that is the load-bearing decision in this
 flow rather than an inconvenience to work around. An endpoint that handed the reset link back to
 whoever asked for it would let anyone type any address and receive a working credential for that
-account. If you add a mailer, implement `deliver` in `security/resets.py` and change nothing else.
+account.
+
+Mail is also sent *after* the response is written, not during it. `/forgot` answers identically for
+an address that has an account and one that does not — that is what stops it being a membership
+oracle — and an SMTP round trip on only one of those branches would hand the same oracle back to
+anyone holding a stopwatch.
 
 ## Deploy sequence
 

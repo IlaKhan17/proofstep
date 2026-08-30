@@ -40,6 +40,15 @@ x-app-env: &app-env
   # request: a link built from a caller-supplied Host header points wherever the caller said, with a
   # live token attached. Left at the default, links work only for someone on this host.
   DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000}
+  # Mail. Unset by default: invitations and password resets work without a relay, through the
+  # operator — see docs/OPERATIONS.md §7. Set SMTP_HOST to turn that into real email.
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+  SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+  SMTP_TLS: ${SMTP_TLS:-false}
+  EMAIL_FROM: ${EMAIL_FROM:-Proofstep <proofstep@localhost>}
   # The proxy in front of this stack. Without an allow-list, X-Forwarded-For is caller-controlled
   # and every client IP in the audit log is a guess.
   FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-0.0.0.0/0}
@@ -48,6 +57,7 @@ x-secrets: &app-secrets
   - app_db_password
   - jwt_secret
   - s3_secret_key
+  - smtp_password
 
 services:
   postgres:
@@ -180,6 +190,8 @@ secrets:
     file: ./secrets/jwt_secret
   s3_secret_key:
     file: ./secrets/s3_secret_key
+  smtp_password:
+    file: ./secrets/smtp_password
 
 volumes:
   pgdata:

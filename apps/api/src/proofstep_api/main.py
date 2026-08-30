@@ -41,6 +41,7 @@ from proofstep_api.errors import (
     problem_response,
     validation_response,
 )
+from proofstep_api.services import email
 from proofstep_api.settings import Settings, get_settings
 
 logger = logging.getLogger("proofstep.api")
@@ -169,6 +170,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "no partition covers the current month for: %s. Ingestion will fail. Run "
                 "`make partitions` or let the worker's maintenance job catch up.",
                 ", ".join(missing),
+            )
+
+        # Said once, at startup, rather than discovered when someone's invitation goes nowhere.
+        # Not an error: running without a relay is a supported configuration, and the message
+        # names the path that replaces it rather than just reporting an absence.
+        if email.get_sender(config).configured:
+            logger.info("mail transport: SMTP via %s", config.smtp_host)
+        else:
+            logger.warning(
+                "no mail transport configured (SMTP_HOST is unset). Invitations and password "
+                "resets still work: an invitation link is shown to whoever creates it, and a "
+                "reset link is written to this log. See docs/OPERATIONS.md §7."
             )
         try:
             yield

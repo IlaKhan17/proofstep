@@ -29,7 +29,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, update
 
@@ -559,6 +559,7 @@ class AcknowledgedOut(BaseModel):
 async def forgot_password(
     body: ForgotIn,
     request: Request,
+    background: BackgroundTasks,
     session: SessionDep,
     settings: SettingsDep,
 ) -> AcknowledgedOut:
@@ -578,7 +579,11 @@ async def forgot_password(
             )
         )
         await session.flush()
-        await resets.deliver(user.email, token, settings=settings)
+        # Scheduled, not awaited. The response is written before the socket to the relay is
+        # opened, which keeps this endpoint's timing the same for an address that has an account
+        # and one that does not — the property the identical response body exists to protect, and
+        # one that an inline SMTP round trip would hand straight back through a stopwatch.
+        background.add_task(resets.deliver, user.email, token, settings=settings)
 
     # No `else`. Not even a log line distinguishing the two — an operator reading logs is not the
     # threat, but a log that says "reset requested for an unknown address" is one grep away from
