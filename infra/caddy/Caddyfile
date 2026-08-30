@@ -1,0 +1,47 @@
+# TLS, and the two hostnames Proofstep serves.
+#
+# Caddy obtains and renews Let's Encrypt certificates by itself, which is the whole reason it is
+# here rather than nginx: certificate renewal is a cron job that fails silently three months after
+# anyone last thought about it, and an expired certificate takes the product down completely.
+#
+# ── Why two hostnames and not one with a path prefix ──────────────────────────────────────────
+#
+# The dashboard and the API are different front doors with different callers. A browser reaches the
+# dashboard carrying a session cookie; an SDK reaches the API carrying a key. Serving the API under
+# a path on the dashboard's origin would mean the browser attaches that session cookie to
+# SDK-shaped requests purely because the origin matches — and the separation the dashboard's proxy
+# allow-list exists to enforce would be one misconfigured route away from gone. Different origins
+# mean the browser cannot accidentally speak the machine's protocol.
+#
+# Set PROOFSTEP_DOMAIN and PROOFSTEP_API_DOMAIN in .env.prod.
+
+{
+	# Where Let's Encrypt sends expiry warnings. Worth setting to a real address: it is the only
+	# notice you get that renewal has been failing.
+	email {$ACME_EMAIL}
+}
+
+# ── The dashboard ────────────────────────────────────────────────────────────────────────────
+{$PROOFSTEP_DOMAIN} {
+	encode zstd gzip
+
+	# HSTS. Once a browser has seen this it refuses plaintext to this host for a year, which
+	# closes the downgrade window on every visit after the first. Deliberately without
+	# `includeSubDomains`: this is a subdomain of a domain used for other things, and asserting
+	# a policy over its siblings from here would be overreach with a twelve-month memory.
+	header Strict-Transport-Security "max-age=31536000"
+
+	reverse_proxy web:3000
+}
+
+# ── The API ──────────────────────────────────────────────────────────────────────────────────
+{$PROOFSTEP_API_DOMAIN} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+
+	# Trace batches carry prompts and completions, so they are large by nature. Caddy does not
+	# cap request bodies by default; the API enforces its own limits, which is where that
+	# decision belongs — a proxy rejecting a batch produces a 413 the application never sees and
+	# so never explains.
+	reverse_proxy api:8000
+}

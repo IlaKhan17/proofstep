@@ -40,9 +40,41 @@ writes `secrets/` at mode 600 and never overwrites — regenerating `jwt_secret`
 and regenerating a database password locks the application out of its own data until the role is
 altered to match.
 
+### Public HTTPS
+
+`docker-compose.tls.yml` puts Caddy in front of both services and gets Let's Encrypt certificates
+that renew themselves:
+
+```bash
+# in .env.prod
+PROOFSTEP_DOMAIN=proofstep.example.com
+PROOFSTEP_API_DOMAIN=api.proofstep.example.com
+ACME_EMAIL=you@example.com
+DASHBOARD_URL=https://proofstep.example.com
+CORS_ORIGINS=https://proofstep.example.com
+FORWARDED_ALLOW_IPS=172.16.0.0/12
+
+docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml --env-file .env.prod up -d
+```
+
+Both hostnames need an A record pointing at the host, and **ports 80 and 443 must be reachable from
+the internet before you start it**. Port 80 is not a redirect convenience — Let's Encrypt's HTTP-01
+challenge is served on it, so blocking it means no certificate is issued and the site never comes
+up at all.
+
+Two hostnames, not one with a path prefix. A browser reaching the dashboard carries a session
+cookie; an SDK reaching the API carries a key. Serving both from one origin means the browser
+attaches that cookie to SDK-shaped requests because the origin matches, and the separation the
+dashboard's proxy allow-list enforces is one misconfigured route from gone.
+
+With this overlay the dashboard is no longer published directly on a host port — Caddy reaches it
+over the compose network. A published port alongside TLS is a second, plaintext way in.
+
+### Without TLS
+
 **The API is not published to the host.** The dashboard reaches it over the compose network. But
-SDKs have to reach it from wherever your instrumented application runs, so a real deployment
-publishes it somehow — behind your own TLS-terminating proxy, or with the overlay:
+SDKs have to reach it from wherever your instrumented application runs, so a deployment without the
+TLS overlay has to publish it somehow — behind your own proxy, or with:
 
 ```bash
 docker compose -f docker-compose.prod.yml -f docker-compose.expose-api.yml \
@@ -100,7 +132,8 @@ The full list is [`docs/HARDENING.md`](HARDENING.md). The four that actually bit
    If that says `not_enforced`, every row-level-security policy in the database exists and does
    nothing, and nothing else in the system's behaviour will tell you.
 
-2. **TLS, in front of everything.** Neither the compose stack nor the manifests terminate it.
+2. **TLS, in front of everything.** `docker-compose.tls.yml` does this; the Kubernetes manifests
+   leave it to your ingress controller.
 
 3. **`FORWARDED_ALLOW_IPS`, narrowed to your proxy.** Left wide, `X-Forwarded-For` is
    caller-controlled and every client address in the audit log is whatever the caller claimed.

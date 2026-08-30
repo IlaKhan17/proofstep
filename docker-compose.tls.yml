@@ -1,0 +1,61 @@
+# Public HTTPS, on two hostnames, with certificates that renew themselves.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml \
+#     --env-file .env.prod up -d
+#
+# This is the overlay that turns the stack from "runs on a host" into "reachable at a link". The
+# base file deliberately publishes nothing but the dashboard on a local port, because a stack that
+# binds 0.0.0.0:80 the moment you start it is one that gets exposed by accident.
+#
+# ── What it needs before it will work ────────────────────────────────────────────────────────
+#
+# Two DNS A records pointing at this host, and ports 80 and 443 reachable from the internet. Port
+# 80 is not optional and not a redirect convenience: Let's Encrypt's HTTP-01 challenge is served on
+# it, so blocking 80 means no certificate is ever issued and the site simply never comes up.
+#
+# ── What it changes about the base stack ─────────────────────────────────────────────────────
+#
+# The dashboard stops being published directly. With Caddy in front, a published port would be a
+# second, plaintext way in that bypasses TLS, HSTS, and the real client address — which is exactly
+# the door you did not mean to leave open.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # QUIC. Harmless if the host firewall drops it; browsers fall back to TCP.
+      - "443:443/udp"
+    environment:
+      PROOFSTEP_DOMAIN: ${PROOFSTEP_DOMAIN:?set PROOFSTEP_DOMAIN in .env.prod}
+      PROOFSTEP_API_DOMAIN: ${PROOFSTEP_API_DOMAIN:?set PROOFSTEP_API_DOMAIN in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Issued certificates and the ACME account key. Losing this volume is not fatal — Caddy
+      # re-issues — but it does mean re-requesting every certificate on restart, and Let's Encrypt
+      # rate-limits that to five per hostname per week. Which is plenty, until a bad afternoon.
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - web
+      - api
+
+  web:
+    # No longer published to the host: Caddy reaches it over the compose network. Overriding with
+    # an empty list is how compose un-publishes a port an earlier file declared.
+    ports: !reset []
+
+  api:
+    environment:
+      # The real client address now arrives via Caddy, so uvicorn must be told to trust the
+      # forwarded header from it — and only from it. Left at 0.0.0.0/0, X-Forwarded-For is
+      # caller-controlled and every address in the audit log is whatever the caller claimed.
+      # Docker's default bridge subnets live in 172.16.0.0/12.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
+
+volumes:
+  caddydata:
+  caddyconfig:
