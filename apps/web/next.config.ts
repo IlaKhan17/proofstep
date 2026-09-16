@@ -15,7 +15,12 @@ const nextConfig: NextConfig = {
   // A self-contained server bundle with only the modules it actually imports, rather than a
   // container carrying the whole node_modules tree. It is the difference between a ~200MB image
   // and a ~1GB one, and the trace is computed from real imports so it cannot drift from the code.
-  output: "standalone",
+  // `standalone` bundles a self-contained server with its own node_modules, which is what the
+  // Docker image copies and runs. Vercel builds Next.js natively and wants to control its own
+  // output, so it is switched off there — `VERCEL` is set by their build environment. Leaving it
+  // on works today but is explicitly not what Vercel supports, and "works today" is a poor
+  // foundation for the thing that serves your dashboard.
+  output: process.env.VERCEL ? undefined : "standalone",
 
   typescript: {
     // A type error must fail the build. The alternative ships a broken page and
