@@ -6,12 +6,18 @@ Three ways to run it, in order of how much of it you want to operate yourself.
 |---|---|---|
 | [Docker Compose](#docker-compose) | one host, everything on it | trying it out, small teams, a single-tenant install |
 | [Kubernetes](#kubernetes) | the app; managed Postgres, Redis, object storage | anything with a platform team |
-| Proofstep Cloud | nothing | not wanting to run a database |
+| [The live instance](https://proofstep.ilarehman.com) | nothing | trying it before running anything |
+
+There is a live instance at **[proofstep.ilarehman.com](https://proofstep.ilarehman.com)**, with its
+API at `https://api.proofstep.ilarehman.com`. Sign up and point an SDK at it to see the loop work
+without deploying anything. It is one small instance run by the author — no uptime commitment, no
+retention promise — so treat it as a demonstration rather than somewhere to keep data.
 
 The images are `ghcr.io/ilakhan17/proofstep/api` and `ghcr.io/ilakhan17/proofstep/web`, built for
 amd64 and arm64. Tags: a version (`0.1.0`), a minor series (`0.1`), or `edge` for the tip of main.
-There is deliberately no `latest` — a tag whose meaning changes under you turns a pod reschedule
-into an unplanned deploy and a rollback into archaeology.
+Pin a version. A `latest` tag exists — `docker/metadata-action` adds one for semver releases — but
+tracking it means a restart can change the code without a deploy, which turns a rollback into
+archaeology.
 
 Every image carries a build provenance attestation, so you can check where it came from before you
 run it:

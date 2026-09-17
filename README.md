@@ -6,6 +6,13 @@
 > in one command, and `pip install proofstep` gives you the SDK — but the API and schema are not
 > stable yet. See [what is deliberately not done](docs/HARDENING.md#not-done).
 
+**Try it:** [proofstep.ilarehman.com](https://proofstep.ilarehman.com) — a live instance you can
+sign up for. Point an SDK at `https://api.proofstep.ilarehman.com`.
+
+> It is a single small instance run by the author, not a hosted product with an uptime commitment.
+> Data on it is not backed by any retention promise. For anything you care about,
+> [run your own](docs/DEPLOYING.md) — that path is the one this repository is built around.
+
 Proofstep answers the question a dashboard cannot: **should this change be allowed to merge?**
 
 It is a testing tool, not an observability tool. Traces are the evidence; the verdict is the
@@ -105,6 +112,18 @@ including instrumenting your own agent.
 pip install proofstep            # the tracing SDK
 pip install proofstep-cli        # the `proofstep` command for CI
 ```
+
+Point it at a server. The live instance, or your own:
+
+```bash
+export PROOFSTEP_ENDPOINT=https://api.proofstep.ilarehman.com
+export PROOFSTEP_API_KEY=ps_prod_...   # Settings -> API keys, with the `ingest` scope
+```
+
+`PROOFSTEP_ENDPOINT` defaults to `http://localhost:8000`, which is right for a local run and wrong
+everywhere else — set it explicitly in anything deployed. Export failures never reach your
+application either way: a server that is unreachable produces a warning and dropped traces, not an
+exception in the code being measured.
 
 ```python
 import proofstep
