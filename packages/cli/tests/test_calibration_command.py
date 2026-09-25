@@ -9,6 +9,8 @@ else here is scaffolding for that property.
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -420,3 +422,72 @@ class TestVersionHash:
         assert evaluator_version_hash(spec, rubric=RUBRIC) == evaluator_version_hash(
             reordered, rubric=RUBRIC
         )
+
+
+class TestTheCommittedReferenceSuite:
+    """The shipped `reply-tone` suite, gated on its shipped calibration record.
+
+    This lived as an inline script in `ci.yml` and was wrong the whole time. It hid a record with
+    `next(Path("evals/calibration").glob("*.calibration.json"))` — and `Path.glob` yields
+    filesystem order, not sorted order. With six records in that directory, five of the six possible
+    first results hide a judge that `reply-tone` does not gate on, leaving the real one calibrated
+    and the assertion checking nothing. It passed for as long as the ordering happened to be kind.
+
+    Moved here because a check that only exists in a workflow file cannot be run before pushing,
+    which is the reason nobody noticed.
+    """
+
+    @staticmethod
+    def _repo_root() -> Path:
+        # packages/cli/tests/… → repository root.
+        return Path(__file__).resolve().parents[3]
+
+    #: The judge `evals/suites/reply-tone.yaml` actually gates on. Named, not discovered — that is
+    #: the whole point of this class.
+    JUDGE = "acceptable_to_followup"
+
+    def test_the_gated_judge_has_exactly_one_committed_record(self) -> None:
+        """Named explicitly, so a rename fails here rather than quietly testing something else."""
+        matches = sorted(
+            (self._repo_root() / "evals" / "calibration").glob(f"{self.JUDGE}.*.calibration.json")
+        )
+        assert len(matches) == 1, f"expected one record for {self.JUDGE}, found {matches}"
+
+    def test_removing_that_record_blocks_the_run(self) -> None:
+        """A metric that clears its threshold still fails when its judge is unvalidated.
+
+        `require: true` on the calibration block is what makes an LLM judge's number admissible.
+        Without evidence the judge agrees with a human, a passing score is an unverified claim, and
+        gating a merge on it would launder that into a verdict.
+        """
+        root = self._repo_root()
+        record = next((root / "evals" / "calibration").glob(f"{self.JUDGE}.*.calibration.json"))
+
+        hidden = Path(tempfile.mkdtemp()) / record.name
+        shutil.move(record, hidden)
+        try:
+            loaded = load_suite(root / "evals" / "suites" / "reply-tone.yaml")
+            report = evaluate_gates(
+                build_gate_set(loaded),
+                # Comfortably above the threshold, so nothing but the missing calibration can be
+                # what fails the run.
+                [Metric(key=self.JUDGE, value=0.99, count=120)],
+                judge_metrics=judge_metric_keys(loaded),
+                calibrations=resolve_calibrations(loaded),
+            )
+            assert report.verdict is Verdict.ERROR, report.verdict
+            assert report.blocking_failures[0].rule == "uncalibrated_judge"
+        finally:
+            shutil.move(hidden, record)
+
+    def test_the_record_is_restored_afterwards(self) -> None:
+        """The test above moves a committed file. If it ever leaves it moved, say so here.
+
+        Ordered after it by position in the class, which pytest runs in definition order — a
+        cheap guard against a failure mode that would otherwise show up as an unrelated dirty
+        working tree.
+        """
+        matches = list(
+            (self._repo_root() / "evals" / "calibration").glob(f"{self.JUDGE}.*.calibration.json")
+        )
+        assert len(matches) == 1, "a committed calibration record was left moved"

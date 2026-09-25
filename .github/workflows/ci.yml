@@ -535,35 +535,11 @@ jobs:
               -e acceptable_to_followup --verdicts /tmp/bad-verdicts.jsonl --no-write
 
       - name: an uncalibrated gated judge is never silent
-        run: |
-          uv run python - <<'PY'
-          import shutil, tempfile
-          from pathlib import Path
-          from proofstep_cli.runner import build_gate_set, judge_metric_keys, resolve_calibrations
-          from proofstep_cli.suite.loader import load_suite
-          from proofstep_core.gates import evaluate_gates
-          from proofstep_types import Metric, Verdict
-
-          # Hide the committed record, leaving the judge uncalibrated.
-          record = next(Path("evals/calibration").glob("*.calibration.json"))
-          moved = Path(tempfile.mkdtemp()) / record.name
-          shutil.move(record, moved)
-          try:
-              loaded = load_suite("evals/suites/reply-tone.yaml")
-              report = evaluate_gates(
-                  build_gate_set(loaded),
-                  [Metric(key="acceptable_to_followup", value=0.99, count=120)],
-                  judge_metrics=judge_metric_keys(loaded),
-                  calibrations=resolve_calibrations(loaded),
-              )
-              # The metric passes its threshold with room to spare, and the run still
-              # fails: `require: true` means an unvalidated judge cannot gate a merge.
-              assert report.verdict is Verdict.ERROR, report.verdict
-              assert report.blocking_failures[0].rule == "uncalibrated_judge"
-              print("uncalibrated judge blocks:", report.blocking_failures[0].message[:70])
-          finally:
-              shutil.move(moved, record)
-          PY
+        # The assertion lives in the test suite, not inline here. As a script in this file it could
+        # not be run before pushing, and it was wrong for as long as it existed: it hid whichever
+        # calibration record `Path.glob` happened to yield first, which with six records in the
+        # directory was usually a judge this suite does not gate on.
+        run: uv run pytest -q packages/cli/tests/test_calibration_command.py -k TheCommittedReferenceSuite
 
   # Stage 4c — the reference integrations. Ten suites across two unrelated domains, run against
   # committed fixtures with a stub judge, so no provider credential is involved.
