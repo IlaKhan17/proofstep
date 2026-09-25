@@ -92,7 +92,7 @@ python3 - "$API" "$KEY" <<'PY'
 import datetime, json, sys, urllib.error, urllib.request, uuid
 
 api, key = sys.argv[1], sys.argv[2]
-now = datetime.datetime.now(datetime.UTC).isoformat()
+now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 trace_id, span_id = uuid.uuid4().hex, uuid.uuid4().hex[:16]
 
 batch = {
