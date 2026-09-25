@@ -669,6 +669,42 @@ jobs:
           PROOFSTEP_API_URL: http://127.0.0.1:8000
           PROOFSTEP_API_KEY: ps_dev_00000000_ci-build-placeholder-not-a-real-key
 
+  # The public site: landing page and the self-hosting guide. Separate from the dashboard job
+  # because it is a separate Vercel project with its own build, and a failure in one says nothing
+  # about the other.
+  #
+  # No test step: there is no behaviour here to assert beyond "it builds and typechecks", and a
+  # snapshot test over marketing copy is a test that fails every time someone improves a sentence.
+  site:
+    name: site · lint · types · build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: biome (lint and format)
+        run: pnpm lint
+
+      - name: tsc --noEmit
+        run: pnpm typecheck
+
+      - name: next build
+        run: pnpm build
+
   # Deployment manifests. Cheap, and the failure they catch is expensive: a manifest is only ever
   # exercised at deploy time, so a typo in one sits in the repository looking correct until the
   # moment someone is trying to ship.
