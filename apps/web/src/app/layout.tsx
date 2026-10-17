@@ -12,6 +12,25 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 }
 
+/**
+ * Every route is rendered per request, and that is a correctness requirement rather than a
+ * preference.
+ *
+ * `middleware.ts` issues a fresh CSP nonce per request and the policy is `'strict-dynamic'` with
+ * no `'unsafe-inline'`. Next.js can only stamp that nonce onto its injected `<script>` tags while
+ * rendering, so a statically prerendered page ships HTML whose scripts carry no nonce at all —
+ * against a header that demands one. The browser then blocks every inline script on the page and
+ * the result is a login form that renders and does nothing, with the explanation only visible in
+ * the console.
+ *
+ * That is exactly what shipped: `/login`, `/signup`, `/forgot`, and `/` were prerendered, so
+ * signing in was impossible in production while every dynamic page worked.
+ *
+ * Nothing is lost here. This is an authenticated dashboard; every page shows one user's data, so
+ * there was no cache to benefit from prerendering in the first place.
+ */
+export const dynamic = "force-dynamic"
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
