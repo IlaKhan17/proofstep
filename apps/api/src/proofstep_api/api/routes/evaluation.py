@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from proofstep_api.api.dependencies import SessionDep, get_principal
+from proofstep_api.api.dependencies import ReadingPrincipalDep, SessionDep
 from proofstep_api.db.models.evaluation import (
     Dataset,
     DatasetVersion,
@@ -48,12 +48,23 @@ router = APIRouter(prefix="/v1", tags=["evaluation"])
 
 
 def _guard(permission: Permission) -> Any:
-    async def dependency(principal: Annotated[Principal, Depends(get_principal)]) -> Principal:
-        if principal.project_id is None:
+    """Project-scoped, for a key or a person.
+
+    Takes `ReadingPrincipalDep` rather than the raw principal for the same reason `traces.py`
+    does: a session token names a user, not a project, so a human reached these routes with no
+    project bound and no permissions and was refused every time.
+    """
+
+    async def dependency(principal: ReadingPrincipalDep) -> Principal:
+        bound: Principal = principal
+        if bound.project_id is None:
             raise ForbiddenError("This endpoint requires a project-scoped credential.")
-        if not principal.can(permission):
-            raise ForbiddenError(f"This action requires the {permission.value!r} permission.")
-        return principal
+        if not bound.can(permission):
+            raise ForbiddenError(
+                f"This action requires the {permission.value!r} permission. Your role is "
+                f"{bound.role or 'api key'}."
+            )
+        return bound
 
     return Depends(dependency)
 

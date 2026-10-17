@@ -467,8 +467,10 @@ class TestTheCommittedReferenceSuite:
         shutil.move(record, hidden)
         try:
             loaded = load_suite(root / "evals" / "suites" / "reply-tone.yaml")
+            gate_set = build_gate_set(loaded)
+            assert gate_set is not None, "reply-tone defines gates; a None set means it stopped"
             report = evaluate_gates(
-                build_gate_set(loaded),
+                gate_set,
                 # Comfortably above the threshold, so nothing but the missing calibration can be
                 # what fails the run.
                 [Metric(key=self.JUDGE, value=0.99, count=120)],

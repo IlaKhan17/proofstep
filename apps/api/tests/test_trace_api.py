@@ -6,6 +6,7 @@ filters and keyset pagination, fetch a trace with its span tree.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -367,3 +368,74 @@ class TestResponseHeaders:
         response = await client.get("/v1/traces", headers=auth(tenant_a))
         assert response.headers["X-Content-Type-Options"] == "nosniff"
         assert response.headers["X-Frame-Options"] == "DENY"
+
+
+class TestASignedInPersonCanRead:
+    """The dashboard's own path: a session token, not an API key.
+
+    Every test above authenticates with a key, which is how this shipped broken. A session token
+    names a user and nothing else — `_principal_from_jwt` cannot know a project from it — so a
+    person who logged into the dashboard arrived with no project and an empty permission set, and
+    the trace list refused them with "this credential needs the 'read' scope". A scope is a
+    property of an API key. There was no action the user could take.
+
+    It only affected humans. Keys carry their own project and scopes, so every automated test and
+    the entire CLI path worked, and the two screens that were unreachable were the two the
+    dashboard opens on.
+    """
+
+    @staticmethod
+    async def _session_headers(client: AsyncClient, email: str) -> dict[str, str]:
+        response = await client.post(
+            "/v1/auth/signup",
+            json={"email": email, "password": "a-sufficiently-long-password"},
+        )
+        assert response.status_code == 201, response.text
+        return {"authorization": f"Bearer {response.json()['access_token']}"}
+
+    async def test_a_user_can_list_traces_without_naming_a_project(
+        self, client: AsyncClient
+    ) -> None:
+        """No project in the request, because the dashboard does not send one.
+
+        Signup creates exactly one project, so "the project I am looking at" is unambiguous. The
+        binding resolves it rather than refusing for want of a parameter the UI never had.
+        """
+        headers = await self._session_headers(client, f"reader-{uuid.uuid4().hex[:8]}@example.com")
+        response = await client.get("/v1/traces", headers=headers)
+        assert response.status_code == 200, response.text
+        assert "data" in response.json()
+
+    async def test_a_user_can_list_experiments(self, client: AsyncClient) -> None:
+        # The other screen with the same guard shape, and the same break.
+        headers = await self._session_headers(client, f"exp-{uuid.uuid4().hex[:8]}@example.com")
+        response = await client.get("/v1/experiments", headers=headers)
+        assert response.status_code == 200, response.text
+
+    async def test_naming_another_persons_project_is_not_found(self, client: AsyncClient) -> None:
+        """404, not 403. A 403 would confirm the project exists.
+
+        The binding accepts a `project_id` so a switcher can work, which means it is also an input
+        a caller can lie about. Membership is checked either way.
+        """
+        mine = await self._session_headers(client, f"mine-{uuid.uuid4().hex[:8]}@example.com")
+        theirs_signup = await client.post(
+            "/v1/auth/signup",
+            json={
+                "email": f"theirs-{uuid.uuid4().hex[:8]}@example.com",
+                "password": "a-sufficiently-long-password",
+            },
+        )
+        stranger_project = theirs_signup.json()["project_id"]
+
+        response = await client.get(f"/v1/traces?project_id={stranger_project}", headers=mine)
+        assert response.status_code == 404, response.text
+
+    async def test_an_api_key_cannot_widen_its_reach_with_a_query_parameter(
+        self, client: AsyncClient, tenant_a: Tenant, tenant_b: Tenant
+    ) -> None:
+        """A key is bound by its own credential, and a query string must not override that."""
+        response = await client.get(
+            f"/v1/traces?project_id={tenant_b.project.id}", headers=auth(tenant_a)
+        )
+        assert response.status_code == 404, response.text

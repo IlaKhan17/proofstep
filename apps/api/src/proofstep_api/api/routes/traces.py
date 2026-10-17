@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Select, and_, or_, select
 
-from proofstep_api.api.dependencies import SessionDep, SettingsDep, get_principal
+from proofstep_api.api.dependencies import ReadingPrincipalDep, SessionDep, SettingsDep
 from proofstep_api.db.models.online import OnlineEvalRule, OnlineEvaluation
 from proofstep_api.db.models.traces import PayloadObject, Span, SpanEvent, Trace
 from proofstep_api.errors import BadRequestError, ForbiddenError, NotFoundError
@@ -110,9 +110,20 @@ class TraceDetail(TraceSummary):
 
 
 async def require_read(
-    principal: Annotated[Principal, Depends(get_principal)],
+    bound: ReadingPrincipalDep,
 ) -> Principal:
+    """Readable by a key with the scope, or by a person whose role allows it.
+
+    `ReadingPrincipalDep` rather than the raw principal: a signed-in user carries no scopes and no
+    project until one is bound, so guarding the bare principal rejected every human who opened the
+    dashboard — with a message telling them to obtain a scope that only API keys have.
+    """
+    principal: Principal = bound
     if not principal.can(Permission.PROJECT_READ):
+        if principal.is_user:
+            raise ForbiddenError(
+                f"Your role ({principal.role}) cannot read traces in this project."
+            )
         raise ForbiddenError("This credential cannot read traces; it needs the 'read' scope.")
     if principal.project_id is None:
         raise ForbiddenError("Reading traces requires a project-scoped credential.")

@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -216,6 +216,66 @@ async def resolve_project(
 
 
 ProjectPrincipalDep = Annotated[Principal, Depends(resolve_project)]
+
+
+async def bind_project(
+    principal: PrincipalDep,
+    session: SessionDep,
+    project_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> Principal:
+    """Give a signed-in user a project to act in, for routes with no project in their path.
+
+    `resolve_project` covers the account surface, where the project is part of the URL. The data
+    surface is not shaped that way: `/v1/traces` and `/v1/experiments` read "the project I am
+    looking at", which for an API key is the one its credential names and for a person is the one
+    they have open.
+
+    Without this a user principal arrives with `permissions=frozenset()` and no project — because
+    that is exactly what `_principal_from_jwt` can know from a token alone — and every read is
+    refused with a message about scopes, which a human does not have and cannot obtain. The
+    dashboard's two main screens were unreachable for the person who had just logged into it,
+    while an API key worked, because the trace routes were written when the dashboard proxied a
+    single shared key and were never revisited when it started carrying real sessions.
+
+    `project_id` is optional and only an *input*. Membership is verified against it either way, so
+    naming someone else's project returns the same 404 a non-existent one does — a 403 would
+    confirm it exists. With no project named, the user's earliest project is used, which is the
+    only one most accounts have: signup creates exactly one.
+    """
+    if principal.kind == "api_key":
+        # Already project-scoped by its own credential. A key must not be able to widen its reach
+        # by naming a different project in a query string.
+        if project_id is not None and principal.project_id != project_id:
+            raise NotFoundError("No such project.")
+        return principal
+
+    if project_id is not None:
+        return await resolve_project(project_id, principal, session)
+
+    # No project named: the user's earliest, by the order their memberships were created. Ordered
+    # rather than arbitrary so that two requests from the same person cannot disagree about which
+    # project they are reading.
+    chosen = (
+        await session.execute(
+            select(Project)
+            .join(Membership, Membership.org_id == Project.org_id)
+            .where(
+                Membership.user_id == uuid.UUID(principal.id),
+                Project.deleted_at.is_(None),
+            )
+            .order_by(Membership.created_at, Project.created_at)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if chosen is None:
+        raise NotFoundError("No project. Create one before reading traces.")
+
+    return await resolve_project(chosen.id, principal, session)
+
+
+#: For data routes: a project-scoped principal whether the caller is a key or a person.
+ReadingPrincipalDep = Annotated[Principal, Depends(bind_project)]
 
 
 def require(permission: Permission) -> Callable[[Principal], Awaitable[Principal]]:
