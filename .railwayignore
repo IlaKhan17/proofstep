@@ -1,0 +1,32 @@
+# What `railway up` must not send to the builder.
+#
+# `up` uploads the working directory, which on a developer machine holds roughly 900 MB of build
+# output — a 446 MB node_modules, a 215 MB virtualenv, and two Next.js build directories. None of
+# it is an input to the image: the Dockerfile installs its own dependencies from lockfiles, so
+# shipping these only slows the upload and risks the builder running out of room.
+#
+# Kept separate from .gitignore because the two answer different questions. git is deciding what
+# belongs in history; this is deciding what the builder needs to do its job.
+
+.venv/
+node_modules/
+**/node_modules/
+**/.next/
+.git/
+
+# Local state and secrets, which must never leave this machine.
+.env
+.env.*
+!.env.example
+!.env.prod.example
+secrets/
+.docker-data/
+
+# Test and tooling caches.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/__pycache__/
+.hypothesis/
+htmlcov/
+.coverage
