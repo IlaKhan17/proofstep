@@ -101,6 +101,14 @@ services:
     # docs/DEPLOYING.md for pointing this at real object storage instead, which is what a production
     # deployment should do anyway.
     image: chainguard/minio:latest
+    # As root, which the old minio/minio image also did. Chainguard's image defaults to uid 65532,
+    # and that uid cannot read `secrets/s3_secret_key` (mode 600, owned by whoever ran
+    # init_secrets.sh) or write to a fresh named volume. MinIO then reports
+    # "Unable to validate credentials inherited from the secret file(s)", which reads like a wrong
+    # password and is actually a permission error. macOS hides this: Docker Desktop's file sharing
+    # makes the mount readable regardless, so it fails only on Linux — which is to say in CI and on
+    # every real deployment.
+    user: "0:0"
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:

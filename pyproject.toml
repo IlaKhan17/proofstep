@@ -52,6 +52,16 @@ addopts = [
     "-ra",
 ]
 asyncio_mode = "auto"
+# Set explicitly because leaving it unset is now an error here, not a warning: newer pytest-asyncio
+# releases deprecate the implicit default, and `filterwarnings = ["error"]` below promotes that
+# warning into a collection-time INTERNALERROR. The locked environment pins an older release and
+# never sees it; the oldest-Python job installs the published wheels against an unpinned
+# pytest-asyncio and does. That job exists precisely to catch what a lock file hides.
+#
+# "session", not the "function" that pytest-asyncio suggests: the integration fixtures — the
+# database engine above all — are session-scoped, and a function-scoped loop tears the loop out from
+# under them, which fails 306 tests with a bare AssertionError from deep inside the plugin.
+asyncio_default_fixture_loop_scope = "session"
 markers = [
     "integration: requires docker services (postgres/redis/minio)",
     "e2e: full-stack end-to-end test",
