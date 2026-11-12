@@ -43,7 +43,16 @@ services:
       retries: 30
 
   minio:
-    image: minio/minio:latest
+    # chainguard/minio, not minio/minio: MinIO withdrew their community images from Docker Hub, and
+    # `minio/minio` now 404s for everyone — which broke `docker compose up` for every self-hoster and
+    # every CI run, silently, without a commit of ours touching it. This image is the same MinIO
+    # server (same entrypoint, same `mc` for the health check below), rebuilt by Chainguard.
+    #
+    # Unpinned, reluctantly: the free tier publishes only `latest`, so there is no version tag to
+    # pin, and a digest pin rots when Chainguard garbage-collects superseded digests. See
+    # docs/DEPLOYING.md for pointing this at real object storage instead, which is what a production
+    # deployment should do anyway.
+    image: chainguard/minio:latest
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:

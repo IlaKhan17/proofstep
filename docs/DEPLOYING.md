@@ -46,6 +46,27 @@ writes `secrets/` at mode 600 and never overwrites — regenerating `jwt_secret`
 and regenerating a database password locks the application out of its own data until the role is
 altered to match.
 
+### Object storage
+
+The compose files run MinIO for trace payloads. The image is `chainguard/minio`, not
+`minio/minio`: MinIO withdrew their community images from Docker Hub, so the old reference now
+404s for everyone. It is the same MinIO server, rebuilt — but Chainguard's free tier publishes
+only `latest`, so unlike everything else here it cannot be pinned to a version.
+
+For anything you intend to keep, point the deployment at real object storage instead — S3, R2, or
+any S3-compatible endpoint — and drop the `minio` service:
+
+```bash
+# in .env.prod
+S3_ENDPOINT=https://s3.eu-central-1.amazonaws.com
+S3_BUCKET=proofstep-payloads
+S3_ACCESS_KEY=...
+# the secret goes in secrets/s3_secret_key, not here
+```
+
+That is the same split the Kubernetes manifests take, and for the same reason: object storage is
+stateful, and its loss is the kind you cannot recover from.
+
 ### Public HTTPS
 
 `docker-compose.tls.yml` puts Caddy in front of both services and gets Let's Encrypt certificates

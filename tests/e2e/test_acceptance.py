@@ -68,6 +68,28 @@ def cli(
     return completed
 
 
+def assert_published(completed: subprocess.CompletedProcess[str], label: str) -> None:
+    """Fail at the publish, naming the reason, rather than forty lines later on an empty list.
+
+    `proofstep eval` reports a failed or skipped publish on stderr and leaves the exit code alone,
+    because the exit code belongs to the gates — a server being unreachable is not a regression and
+    must not be reported as one. The cost is that a run which publishes nothing looks identical to a
+    run which publishes fine, right up until a later assertion reads back an empty list and says
+    only `[]`. That is how this test spent a month failing in CI and passing on every laptop: the
+    cause was on stderr the whole time and nothing was reading it.
+    """
+    if "not published" in completed.stdout or "not published" in completed.stderr:
+        reason = next(
+            (
+                line.strip()
+                for line in (completed.stdout + "\n" + completed.stderr).splitlines()
+                if "not published" in line
+            ),
+            "no reason given",
+        )
+        pytest.fail(f"the {label} run did not publish: {reason}")
+
+
 def report(path: Path) -> dict[str, Any]:
     assert path.exists(), f"the run produced no report at {path}"
     return json.loads(path.read_text())
@@ -123,7 +145,7 @@ def test_the_whole_loop(stack: dict[str, Any], api: httpx.Client, tmp_path: Path
 
     # ----------------------------------------------------------------- 4. a healthy run
     clean_report = tmp_path / "clean.json"
-    cli("eval", SUITE, "-o", str(clean_report), env=env, expect=0)
+    assert_published(cli("eval", SUITE, "-o", str(clean_report), env=env, expect=0), "healthy")
     clean = report(clean_report)
     assert clean["verdict"] == "pass", clean["verdict"]
     assert blocking_failures(clean) == []
@@ -136,7 +158,9 @@ def test_the_whole_loop(stack: dict[str, Any], api: httpx.Client, tmp_path: Path
     # on the average would merge this.
     broken_report = tmp_path / "broken.json"
     broken_env = {**env, BREAK: "1"}
-    cli("eval", SUITE, "-o", str(broken_report), env=broken_env, expect=1)
+    assert_published(
+        cli("eval", SUITE, "-o", str(broken_report), env=broken_env, expect=1), "regressed"
+    )
     broken = report(broken_report)
 
     assert broken["verdict"] == "fail", broken["verdict"]
